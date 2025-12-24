@@ -1,3 +1,4 @@
+import re
 import time
 import pickle
 import getpass
@@ -14,8 +15,9 @@ from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 
 
-COOKIE_FILE = "tiktok_cookies.pkl"
-MAX_SCROLLS = 100
+
+COOKIE_FILE = "instagram_cookies.pkl"
+MAX_SCROLLS = 10
 COMMENT_RETRY_ATTEMPTS = 1        # attempts to open comment pane
 SCROLL_RETRY_ATTEMPTS = 3         # attempts to perform a scroll if it fails
 SKIP_PROB = 0.15                  # probability to skip the like (to appear natural)
@@ -26,7 +28,6 @@ LONG_PAUSE_MAX = 12
 
 def human_sleep(min_s=0.4, max_s=1.4):
     time.sleep(random.uniform(min_s, max_s))
-
 
 def human_scroll_element(driver, element, total_px=600, step_px=120, min_pause=0.25, max_pause=0.9):
     """
@@ -68,7 +69,6 @@ def human_move_and_click(driver, element):
         except Exception:
             pass
 
-
 def validate_url(url):
     try:
         headers = {
@@ -83,7 +83,6 @@ def validate_url(url):
         return True
     except Exception:
         return False
-
 
 def read_video_links(file_path):
     try:
@@ -100,7 +99,6 @@ def read_video_links(file_path):
         print(f"Error reading video links from {file_path}: {e}")
         return []
 
-
 def save_cookies(driver, path=COOKIE_FILE):
     try:
         with open(path, "wb") as f:
@@ -109,12 +107,11 @@ def save_cookies(driver, path=COOKIE_FILE):
     except Exception as e:
         print(f"Error saving cookies: {e}")
 
-
-def load_cookies(driver, url="https://www.tiktok.com", path=COOKIE_FILE):
+def load_cookies(driver, url="https://www.instagram.com", path=COOKIE_FILE):
+    driver.get(url)
     try:
         with open(path, "rb") as f:
             cookies = pickle.load(f)
-        driver.get(url)
         time.sleep(2)
         for c in cookies:
             # remove problematic keys
@@ -135,34 +132,6 @@ def load_cookies(driver, url="https://www.tiktok.com", path=COOKIE_FILE):
         print(f"Error loading cookies: {e}")
         return False
 
-
-def check_for_captcha(driver):
-    try:
-        captcha = driver.find_elements(
-            By.CSS_SELECTOR,
-            "iframe[src*='captcha'], div[id*='captcha'], div[class*='captcha'], div[role='dialog']"
-        )
-        if captcha:
-            print("CAPTCHA detected. Solve it manually in the browser. Waiting...")
-            while True:
-                captcha = driver.find_elements(
-                    By.CSS_SELECTOR,
-                    "iframe[src*='captcha'], div[id*='captcha'], div[class*='captcha'], div[role='dialog']"
-                )
-                avatar = driver.find_elements(By.CSS_SELECTOR, "img[class*='ImgAvatar']")
-                if avatar:
-                    print("Avatar detected → logged in. Resuming.")
-                    return True
-                if not captcha:
-                    print("CAPTCHA seems gone. Resuming.")
-                    return True
-                time.sleep(2)
-        return False
-    except Exception as e:
-        print(f"Error checking for CAPTCHA: {e}")
-        return False
-
-
 def check_login_status(driver, timeout=8):
     """
     Check TikTok login state:
@@ -170,33 +139,22 @@ def check_login_status(driver, timeout=8):
       - Avatar/profile present -> 'logged_in'
       - Neither -> 'unknown'
     """
-    try:
-        WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located((
-                By.CSS_SELECTOR,
-                "button[data-e2e='top-login-button'], img[class*='ImgAvatar'], div[class*='DivAvatarContainer'] img"
-            ))
-        )
-    except Exception:
-        return "unknown"
 
     # Login button visible?
     try:
-        login_btn = driver.find_element(By.CSS_SELECTOR, "button[data-e2e='top-login-button']")
+        WebDriverWait(driver, timeout).until(
+            EC.presence_of_element_located((
+                By.ID,
+                "loginForm"
+            ))
+        )
+
+        login_btn = driver.find_element(By.ID, "loginForm")
+
         if login_btn.is_displayed():
-            return "not_logged_in"
+            return "not_logged_in"    
     except Exception:
-        pass
-
-    # Avatar visible? (logged in)
-    try:
-        avatar = driver.find_element(By.CSS_SELECTOR, "img[class*='ImgAvatar'], div[class*='DivAvatarContainer'] img")
-        if avatar.is_displayed():
-            return "logged_in"
-    except Exception:
-        pass
-
-    return "unknown"
+        return "logged_in"
 
 
 def wait_for_manual_login(driver, poll_interval=2, timeout=180):
@@ -204,11 +162,11 @@ def wait_for_manual_login(driver, poll_interval=2, timeout=180):
     Block until avatar/profile appears or timeout.
     """
     start = time.time()
-    print("Please log in manually in the opened Chrome window...")
+    # print("Please log in manually in the opened Chrome window...")
     while True:
         status = check_login_status(driver, timeout=4)
         if status == "logged_in":
-            print("Detected logged-in state (avatar/profile).")
+            print("Detected logged-in state.")
             return True
         if time.time() - start > timeout:
             print("Timeout waiting for manual login.")
@@ -216,14 +174,14 @@ def wait_for_manual_login(driver, poll_interval=2, timeout=180):
         if status == "not_logged_in":
             print("Login button still visible. Please complete login.")
         else:
-            print("Still waiting for login…")
+            print("Still waiting for login bar/status…")
         time.sleep(poll_interval)
 
 
 def get_driver_with_profile():
     options = Options()
     user = getpass.getuser()
-    custom_user_data_dir = f"C:/Users/{user}/AppData/Local/Google/Chrome/TikTokBotProfile"
+    custom_user_data_dir = f"C:/Users/{user}/AppData/Local/Google/Chrome/TikTokBotProfile" # Use a dedicated profile folder for instagram instead
     options.add_argument(f"--user-data-dir={custom_user_data_dir}")
     options.add_experimental_option("detach", True)
     options.add_argument("--disable-blink-features=AutomationControlled")
@@ -235,233 +193,377 @@ def get_driver_with_profile():
     return driver
 
 
-
-def scroll_and_like_comments(driver, comments_section, max_scrolls=MAX_SCROLLS):
+def find_and_like_comments(driver, link, max_scrolls=MAX_SCROLLS):
     """
-    Scroll the comments section and like comments as they come into view,
-    using randomness and skipping logic to avoid detection.
-    Stops early if no new comments are loaded for several scrolls.
+    Finds the comments section on an Instagram post and likes comments.
+    No need to click comment button - comments are already visible.
     """
-    seen_comments = set()
-    likes_count = 0
-    attempts = 0
-    prev_seen = 0
-    stagnant_loops = 0   # counter for consecutive loops with no new comments
-    MAX_STAGNANT_LOOPS = 5  # stop if no new comments after 5 loops
+    try:
+        print(f"\n{'='*60}")
+        print(f"Processing: {link}")
+        print(f"{'='*60}")
+        
+        # Navigate to the post
+        driver.get(link)
+        human_sleep(2.0, 3.5)
 
-    for i in range(max_scrolls):
-        attempts += 1
-
-        # occasional longer pause to mimic human behaviour
-        if random.random() < LONG_PAUSE_PROB:
-            pause = random.uniform(LONG_PAUSE_MIN, LONG_PAUSE_MAX)
-            print(f" Taking a longer pause for {pause:.1f}s (natural behaviour).")
-            time.sleep(pause)
-
-        # try to scroll; allow small number of retries
-        scrolled = False
-        for s_try in range(SCROLL_RETRY_ATTEMPTS):
-            try:
-                human_scroll_element(driver, comments_section, total_px=random.randint(400, 1000), step_px=120)
-                scrolled = True
-                break
-            except Exception as e:
-                print(f"Scroll attempt {s_try+1}/{SCROLL_RETRY_ATTEMPTS} failed: {e}")
-                human_sleep(0.3, 0.8)
-        if not scrolled:
-            print("Unable to scroll comments further; breaking out.")
-            break
-
-        human_sleep(0.6, 1.6)
-
-        # find comment blocks currently in DOM
-        from selenium.common.exceptions import StaleElementReferenceException
-# New point of modification, tiktok most  likely changes the comment DOM every time
+        # Wait for page to be fully loaded
         try:
-            comments_section = WebDriverWait(driver, 5).until(
+            WebDriverWait(driver, 15).until(
+                lambda d: d.execute_script("return document.readyState") == "complete"
+            )
+            print("✓ Page loaded")
+        except Exception as e:
+            print(f"Page load timeout: {e}")
+
+        # Additional wait for dynamic content
+        human_sleep(1.5, 2.5)
+
+        # Check if comments section exists and is visible
+        comments_container = None
+        
+        print("\nSearching for comments section...")
+        
+        # Try to find the main comments container
+        # This is the div that holds all individual comment blocks
+        try:
+            comments_container = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((
                     By.XPATH,
-                    "//div[contains(@class,'DivCommentListContainer')]"
+                    "//div[contains(@class,'x78zum5') and contains(@class,'xdt5ytf') and contains(@class,'x1iyjqo2')]"
                 ))
             )
+            
+            # Verify it's actually visible
+            if not comments_container.is_displayed():
+                print("✗ Comments container exists but is not visible")
+            else: 
+                print("✓ Comments container found!")
+                # return 0
+                
         except Exception:
-            print("Comment list container not found (re-render). Retrying...")
-            continue
+            print("✗ Comments container not found on page")
+            return 0
+        except Exception as e:
+            print(f"✗ Error finding comments container: {e}")
+            return 0
 
+        # Verify there are actual comments inside
         try:
-            comment_items = comments_section.find_elements(
+            # Check for at least one comment block "Individual comment paths"
+            test_comments = comments_container.find_elements(
                 By.XPATH,
-                ".//div[contains(@class,'DivCommentObjectWrapper')]"
+                ".//div[contains(@class,'xdj266r') and contains(@class,'x14z9mp') and contains(@class,'xat24cr') and contains(@class,'x1lziwak') "
+                "and contains(@class,'xexx8yu') and contains(@class,'xyri2b') and contains(@class,'x1nhvcw1')]"
             )
-        except StaleElementReferenceException:
-            print("Comments went stale. Re-looping...")
+            
+            if len(test_comments) == 0:
+                print("✗ No comments found in container")
+                return 0
+            
+            print(f"✓ Found {len(test_comments)} initial comment blocks")
+            
+        except Exception as e:
+            print(f"Error checking for comments: {e}")
+            return 0
+
+        # Start scrolling and liking
+        print("\n" + "="*60)
+        print("Starting to scroll and like comments...")
+        print("="*60 + "\n")
+        # send the comment container to the function
+        likes_count = scroll_and_like_comments(driver, comments_container, max_scrolls)
+        
+        return likes_count
+
+    except Exception as e:
+        print(f"\n✗ Error processing post: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return 0
+
+
+def scroll_and_like_comments(driver, comments_container, max_scrolls=MAX_SCROLLS):
+    """
+    Scroll the comments section and like comments as they come into view.
+    """
+    print("\n=== Starting comment liking process ===")
+    seen_comments = set()
+    likes_count = 0
+    stagnant_loops = 0
+    MAX_STAGNANT_LOOPS = 5
+
+    for i in range(max_scrolls):
+        print(f"\n--- Scroll iteration {i+1}/{max_scrolls} ---")
+
+        # Occasional longer pause
+        if random.random() < LONG_PAUSE_PROB:
+            pause = random.uniform(LONG_PAUSE_MIN, LONG_PAUSE_MAX)
+            print(f"Taking a longer pause for {pause:.1f}s")
+            time.sleep(pause)
+
+        # Scroll the comments container
+        if i > 0:  # Don't scroll on first iteration
+            scrolled = False
+            for s_try in range(SCROLL_RETRY_ATTEMPTS):
+                try:
+                    # Scroll within the comments container
+                    driver.execute_script(
+                        "arguments[0].scrollTop += arguments[1];",
+                        comments_container,
+                        random.randint(400, 800)
+                    )
+                    scrolled = True
+                    print("✓ Scrolled successfully")
+                    break
+                except Exception as e:
+                    print(f"Scroll attempt {s_try+1}/{SCROLL_RETRY_ATTEMPTS} failed: {e}")
+                    human_sleep(0.3, 0.8)
+            
+            if not scrolled:
+                print("Unable to scroll; breaking out")
+                break
+
+            human_sleep(0.8, 1.5)
+
+        # Find all comment blocks in the current view
+        try:
+            # Find each individual comment section
+            # Each comment is wrapped in a div with these classes
+            comment_blocks = comments_container.find_elements(
+                By.XPATH,
+                ".//div[contains(@class,'xdj266r') and contains(@class,'x14z9mp') and contains(@class,'xat24cr') and contains(@class,'x1lziwak') "
+                "and contains(@class,'xexx8yu') and contains(@class,'xyri2b') and contains(@class,'x1nhvcw1')]"
+            )
+            print(f"Found {len(comment_blocks)} comment blocks in view")
+            for comment_block in comment_blocks:
+                    print ("Comment Block:", comment_block)
+                    username_elem = comment_block.find_element(
+                                By.XPATH,
+                                ".//span[@class='_ap3a _aaco _aacw _aacx _aad7 _aade']"
+                            )
+                    username = username_elem.text.strip()
+                    print(f" - Comment by @{username}")
+
+                    comment_text = comment_block.find_elements(
+                        By.XPATH,
+                        ".//span[contains(@class,'x193iq5w') and contains(@class,'xeuugli') and contains(@class,'x1fj9vlw')]"
+                    )
+                    for span in comment_text:
+                        text = span.text.strip()
+                        print(f"    » {text}")
+            
+            
+        except Exception as e:
+            print(f"Error finding comments: {e}")
             continue
 
-        
-
-        if not comment_items:
-            print("No comment elements found after scroll.")
-            if i > 10 and attempts > 3:
-                print("No comments found after several attempts; stopping.")
+        if not comment_blocks:
+            print("No comment blocks found")
+            if i > 5:
                 break
             continue
 
-        # track before processing this batch
         before_count = len(seen_comments)
 
-        for comment in comment_items:
+        for idx, comment_block in enumerate(comment_blocks):
             try:
-                # create identifier
-                comment_id = None
+                # Extract username
+                username = ""
                 try:
-                    comment_id = comment.get_attribute("data-id") or comment.get_attribute("data-comment-id")
-                except Exception:
-                    comment_id = None
+                    username_elem = comment_block.find_element(
+                        By.XPATH,
+                        ".//span[@class='_ap3a _aaco _aacw _aacx _aad7 _aade']"
+                    )
+                    username = username_elem.text.strip()
+                except:
+                    pass
 
-                comment_text = (comment.text or "").strip()
-                unique_key = comment_id if comment_id else (comment_text[:180] if comment_text else None)
+                # Extract comment text
+                comment_text = ""
+                try:
+                    # Find the span that contains the actual comment text (not username, not time)
+                    text_spans = comment_block.find_elements(
+                        By.XPATH,
+                        ".//span[contains(@class,'x193iq5w') and contains(@class,'xeuugli') and contains(@class,'x1fj9vlw')]"
+                    )
+                    # Get the span with actual content
+                    for span in text_spans:
+                        text = span.text.strip()
+                        if text and text != username and not text.endswith('w') and not text.endswith('d'):
+                            comment_text = text
+                            break
+                except:
+                    pass
 
+                # Create unique identifier
+                unique_key = f"{username}:{comment_text[:100]}" if username else comment_text[:100]
+                
                 if not unique_key or unique_key in seen_comments:
                     continue
 
                 seen_comments.add(unique_key)
+                
+                # Display info about current comment
+                display_text = comment_text[:50] + "..." if len(comment_text) > 50 else comment_text
+                print(f"\n[{len(seen_comments)}] @{username}: {display_text}")
 
-                # scroll into view
+                # Scroll comment into view
                 try:
-                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", comment)
-                    human_sleep(0.25, 0.9)
-                except Exception:
-                    human_sleep(0.2, 0.5)
-
-                # skip some comments
-                if random.random() < SKIP_PROB:
-                    print(f"Skipping comment (natural skip) — total seen: {len(seen_comments)}")
-                    human_sleep(0.2, 0.8)
-                    continue
-
-                # find like button
-                like_button = None
-                try:
-                    like_button = comment.find_element(
-                        By.CSS_SELECTOR,
-                        "[role='button'][aria-label*='like'], [aria-label*='like'][class*='like'], div[data-e2e*='comment-like']"
+                    driver.execute_script(
+                        "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});",
+                        comment_block
                     )
-                except Exception:
-                    like_button = None
+                    human_sleep(0.3, 0.7)
+                except:
+                    pass
 
-                if not like_button:
-                    print("Like button not located for this comment.")
+                # Random skip for human-like behavior
+                if random.random() < SKIP_PROB:
+                    print("  → Skipping (random)")
                     human_sleep(0.2, 0.6)
                     continue
 
-                # check already liked via aria-pressed
-                aria_pressed = like_button.get_attribute("aria-pressed")
-                already_liked = (aria_pressed is not None and aria_pressed.lower() == "true")
+                # Find the like button - it's in a specific section
+                # Look for the section that contains the like button
+                like_button = None
+                already_liked = False
 
-                if already_liked:
-                    print(" Already liked (skipping).")
-                    human_sleep(0.15, 0.5)
+                try:
+                    # First, find the container that has the like button
+                    # It's in a div with specific classes that contains the SVG
+                    like_container = comment_block.find_element(
+                        By.XPATH,
+                        ".//div[contains(@class,'x6s0dn4') and contains(@class,'x78zum5') and contains(@class,'xdt5ytf')]"
+                    )
+                    
+                    # Now look for the SVG within this container
+                    try:
+                        # Check if already liked (filled heart)
+                        unlike_svg = like_container.find_element(
+                            By.XPATH,
+                            ".//svg[@aria-label='Unlike']"
+                        )
+                        already_liked = True
+                        print("  → Already liked, skipping")
+                        human_sleep(0.15, 0.4)
+                        continue
+                    except:
+                        pass
+                    
+                    # Find the Like SVG (outlined heart)
+                    try:
+                        like_svg = like_container.find_element(
+                            By.XPATH,
+                            ".//svg[@aria-label='Like']"
+                        )
+                        # Get the clickable button ancestor
+                        like_button = like_svg.find_element(
+                            By.XPATH,
+                            "./ancestor::div[@role='button' and contains(@class,'x1i10hfl')][1]"
+                        )
+                    except Exception as e:
+                        print(f"  → SVG found but button not located: {e}")
+                        
+                except Exception as e:
+                    print(f"  → Could not find like container: {e}")
+                    
+                    # Fallback: try to find the like button directly in comment_block
+                    try:
+                        # Try finding by the specific class structure
+                        like_button = comment_block.find_element(
+                            By.XPATH,
+                            ".//div[@role='button' and .//svg[@aria-label='Like'] and contains(@class,'x1i10hfl')]"
+                        )
+                    except:
+                        print(f"  → Fallback also failed")
+                        human_sleep(0.2, 0.5)
+                        continue
+
+                if not like_button:
+                    print("  → No like button found")
+                    human_sleep(0.2, 0.5)
                     continue
 
-               # click like
+                # Click the like button
                 try:
-                    human_move_and_click(driver, like_button)
+                    # Try normal click
+                    try:
+                        like_button.click()
+                    except:
+                        # Fallback to JavaScript click
+                        driver.execute_script("arguments[0].click();", like_button)
+                    
                     human_sleep(0.6, 1.2)
 
-                    # re-check state after clicking using aria-pressed
-                    aria_pressed = like_button.get_attribute("aria-pressed")
-                    now_liked = (aria_pressed is not None and aria_pressed.lower() == "true")
-
-                    if now_liked:
+                    # Verify the like was successful
+                    try:
+                        comment_block.find_element(
+                            By.XPATH,
+                            ".//svg[@aria-label='Unlike']"
+                        )
                         likes_count += 1
-                        print(f"Liked comment #{likes_count} (seen: {len(seen_comments)})")
-                    else:
-                        print("First click didn’t stick, retrying once...")
-                        human_move_and_click(driver, like_button)
+                        print(f"  ✓ LIKED! (Total: {likes_count})")
+                    except:
+                        print("  → Like didn't register, retrying...")
+                        
+                        # Retry once
+                        try:
+                            like_button.click()
+                        except:
+                            driver.execute_script("arguments[0].click();", like_button)
+                        
                         human_sleep(0.6, 1.2)
-
-                        aria_pressed = like_button.get_attribute("aria-pressed")
-                        now_liked = (aria_pressed is not None and aria_pressed.lower() == "true")
-
-                        if now_liked:
+                        
+                        try:
+                            comment_block.find_element(
+                                By.XPATH,
+                                ".//svg[@aria-label='Unlike']"
+                            )
                             likes_count += 1
-                            print(f"Liked on retry (#{likes_count})")
-                        else:
-                            print("Still not liked after retry, skipping.")
+                            print(f"  ✓ LIKED on retry! (Total: {likes_count})")
+                        except:
+                            print("  ✗ Failed to like after retry")
+
                 except Exception as e:
-                    print(f"Error clicking like button: {e}")
+                    print(f"  ✗ Error clicking like: {e}")
                     human_sleep(0.3, 0.8)
 
             except Exception as e:
-                print(f"Error processing a comment: {e}")
+                print(f"Error processing comment: {e}")
                 continue
 
-        # plateau detection
+        # Check for stagnation (no new comments)
         if len(seen_comments) == before_count:
             stagnant_loops += 1
-            print(f"No new comments loaded this round. It is a Stagnant loops: {stagnant_loops}/{MAX_STAGNANT_LOOPS}")
+            print(f"\n⚠ No new comments loaded. Stagnant: {stagnant_loops}/{MAX_STAGNANT_LOOPS}")
             if stagnant_loops >= MAX_STAGNANT_LOOPS:
-                print("Reached end of the comment (no new comments for several loops). Stopping early and proceeding to the next link if available.")
+                print("Reached end of comments (no new comments for several scrolls)")
                 break
         else:
-            stagnant_loops = 0  # reset when new comments are found
+            stagnant_loops = 0
 
-        if random.random() < 0.08:  # scroll up sometimes
+        # Occasional scroll up (human behavior)
+        if random.random() < 0.08:
             try:
-                driver.execute_script("arguments[0].scrollTop -= arguments[1];", comments_section, random.randint(80, 250))
+                driver.execute_script(
+                    "arguments[0].scrollTop -= arguments[1];",
+                    comments_container,
+                    random.randint(80, 250)
+                )
                 human_sleep(0.4, 1.0)
-            except Exception:
+            except:
                 pass
 
-        if i % 10 == 0:
-            print(f"Scroll loop {i+1}/{max_scrolls} — liked: {likes_count} — seen_comments: {len(seen_comments)}")
+        # Progress update every 10 scrolls
+        if i % 10 == 0 and i > 0:
+            print(f"\n📊 Progress: {likes_count} likes | {len(seen_comments)} comments seen")
 
-    print(f"Finished scroll-and-like: total liked = {likes_count}, total seen comments = {len(seen_comments)}")
+    print(f"\n{'='*60}")
+    print(f"✓ Finished: {likes_count} likes | {len(seen_comments)} comments processed")
+    print(f"{'='*60}\n")
+    
     return likes_count
-
-
-def open_comments_panel(driver, link, selector, attempts=COMMENT_RETRY_ATTEMPTS):
-    """
-    Tries to open the comments panel for a post multiple times.
-    Returns the comments_section WebElement or None on failure.
-    """
-    for attempt in range(1, attempts + 1):
-        try:
-            driver.get(link)
-            human_sleep(1.2, 2.5)
-
-            # wait for page to be interactive
-            try:
-                WebDriverWait(driver, 10).until(lambda d: d.execute_script("return document.readyState") in ("interactive", "complete"))
-            except Exception:
-                pass
-
-            # find and click the comments icon/button
-            comment_click = WebDriverWait(driver, 8).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
-            )
-            try:
-                comment_click.click()
-            except Exception:
-                # fallback: JS click
-                driver.execute_script("arguments[0].click();", comment_click)
-
-            # wait for comments container to appear (it may be separate from the button)
-            comments_section = WebDriverWait(driver, 12).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "div[class*='DivCommentContainer'], div[data-e2e*='comment-list'], div[class*='DivCommentListContainer']"))
-            )
-            if comments_section:
-                print ("Comment container found")
-            human_sleep(0.8, 1.6)
-            return comments_section
-
-        except Exception as e:
-            print(f"Attempt {attempt}/{attempts} to open comments failed: {e}")
-            human_sleep(1.0 + attempt * 0.4, 1.6 + attempt * 0.6)
-            continue
-
-    print("All attempts to open the comments panel failed.")
-    return None
 
 
 def like_comments(video_links):
@@ -479,7 +581,7 @@ def like_comments(video_links):
         else:
             status = check_login_status(driver)
             if status == "logged_in":
-                print("Bypassing login — already logged in.")
+                print("Bypassing login.")
             elif status == "not_logged_in":
                 print("Detected login button (not logged in). Waiting for manual login.")
                 if wait_for_manual_login(driver):
@@ -494,39 +596,17 @@ def like_comments(video_links):
     try:
         for link in video_links:
             try:
-                print(f"Processing link: {link}")
-               
-                if check_for_captcha(driver):
-                    human_sleep(1.0, 2.0)
-
-                # # comment icon/button selector (broad set)
-                # selector = (
-                #     "div.css-x4x1c7-DivCommentContainer, div.css-1adgkz8-DivCommentContainer, "
-                #     "div[class*='DivCommentListContainer'], div[data-e2e*='comment-list'],"
-                #     "button span[data-e2e='comment-icon'], button[aria-label*='comments'], a[href*='#comments']"
-                # )
+                # print(f"Processing link: {link}")
                 
-                # comment icon/button selector (broad set)
-                selector = (
-                    "div.css-x4x1c7-DivCommentContainer, "
-                    "div.css-1adgkz8-DivCommentContainer, "
-                    "div[class*='DivCommentListContainer'], "
-                    "div[data-e2e*='comment-list'], "
-                    "button span[data-e2e='comment-icon'], "
-                    "button:has(span[data-e2e='comment-icon']), "
-                    "button[aria-label*='comments'], "
-                    "a[href*='#comments']"
-                )
-
-
-                comments_section = open_comments_panel(driver, link, selector, attempts=COMMENT_RETRY_ATTEMPTS)
+                # Find the comment container and like comments
+                comments_section = find_and_like_comments(driver, link, max_scrolls=MAX_SCROLLS)
                 if not comments_section:
                     print(f"Skipping {link}: couldn't open comments after retries.")
                     continue
 
                 print("Comments panel opened. Starting scroll-and-like routine...")
-                liked = scroll_and_like_comments(driver, comments_section, max_scrolls=MAX_SCROLLS)
-                print(f"Done with this post: liked {liked} comments on {link}")
+                # liked = scroll_and_like_comments(driver, comments_section, max_scrolls=MAX_SCROLLS)
+                # print(f"Done with this post: liked {liked} comments on {link}")
                 processed_links += 1
 
                 # small delay between posts
@@ -546,8 +626,6 @@ def like_comments(video_links):
         except Exception:
             pass
 
-
-
 if __name__ == "__main__":
     video_links_file = "video_links.txt"
     video_links = read_video_links(video_links_file)
@@ -555,22 +633,3 @@ if __name__ == "__main__":
         like_comments(video_links)
     else:
         print("No valid links provided. Please add links to video_links.txt.")
-
-
-
-# # == Links, return back to video_links.txt
-# https://www.tiktok.com/t/ZTMq54aqA/
-
-# https://www.tiktok.com/t/ZTMqa1LmV/
-
-# https://www.tiktok.com/t/ZTMq5EbeC/
-
-# https://www.tiktok.com/t/ZTMq5sg7F/
-
-# https://www.tiktok.com/t/ZTMq5gMbF/
-
-# https://www.tiktok.com/t/ZTMqa1d2b/
-
-# https://www.tiktok.com/t/ZTMq5g98r/
-
-# https://www.tiktok.com/t/ZTMaXVsdL/
