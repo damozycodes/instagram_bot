@@ -224,14 +224,42 @@ def find_and_like_comments(driver, link, max_scrolls=MAX_SCROLLS):
         comments_container = None
         
         print("\nSearching for comments container...")
-        
+
+        # The Click logic
+        try:
+            # Find the clickable button directly by the SVG
+            comment_button = WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((
+            By.CSS_SELECTOR,
+            "div[role='button'] svg[aria-label='Comment']"
+        ))
+    )
+            
+            # Get the button (parent)
+            button = comment_button.find_element(By.XPATH, "./ancestor::div[@role='button']")
+            
+            human_sleep(0.3, 0.6)
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", button)
+            human_sleep(0.3, 0.6)
+            
+            driver.execute_script("arguments[0].click();", button)
+            print("Clicked comment button")
+            print("comment button found")
+            human_sleep(0.3, 0.6)
+            
+                
+        except Exception as e:
+            print(f"comment button not found {e}")
+
+
         # This is the div that holds all individual comment blocks
         try:
             comments_container = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((
                     By.XPATH,
                     # "//div[contains(@class,'x78zum5') and contains(@class,'xdt5ytf') and contains(@class,'x1iyjqo2')]"
-                    "//div[@class='x78zum5 xdt5ytf x1iyjqo2']"
+                    "//div[@class='x78zum5 xdt5ytf x1iyjqo2 xh8yej3']"
+                    
                 ))
             )
             
@@ -255,8 +283,8 @@ def find_and_like_comments(driver, link, max_scrolls=MAX_SCROLLS):
 
             test_comments = comments_container.find_elements(
                 By.XPATH,
-                ".//div[@class='html-div xdj266r x14z9mp xat24cr x1lziwak xexx8yu xyri2b x18d9i69 x1c1uobl x9f619 xjbqb8w " \
-                "x78zum5 x15mokao x1ga7v0g x16uus16 xbiv7yw x1uhb9sk x1plvlek xryxfnj x1iyjqo2 x2lwn1j xeuugli xdt5ytf xqjyukv x1qjc9v5 x1oa3qoh x1nhvcw1']"
+                ".//div[@class='html-div xdj266r x14z9mp xat24cr x1lziwak xyri2b x1c1uobl x9f619 xjbqb8w x78zum5 x15mokao x1ga7v0g" \
+                " x16uus16 xbiv7yw xsag5q8 xz9dl7a x1uhb9sk x1plvlek xryxfnj x1c4vz4f x2lah0s x1q0g3np xqjyukv x1qjc9v5 x1oa3qoh x1nhvcw1']"
             )
             
             if len(test_comments) == 0:
@@ -328,6 +356,7 @@ def scroll_and_like_comments(driver, comments_container, test_comments, max_scro
             human_sleep(0.8, 1.5)
 
         print(f"Found {len(test_comments)} comment blocks in view")
+        
 
         # Find all comment blocks in the current view
         try:
@@ -386,7 +415,7 @@ def scroll_and_like_comments(driver, comments_container, test_comments, max_scro
                     # Get the span with actual content
                     for span in text_spans:
                         text = span.text.strip()
-                        if text and text != username and not text.endswith('w') and not text.endswith('d') or text.endswith('h'):
+                        if text and text != username and not text.endswith('w') and not text.endswith('d') and not text.endswith('h'):
                             comment_text = text
                             break
                 except:
@@ -446,7 +475,7 @@ def scroll_and_like_comments(driver, comments_container, test_comments, max_scro
                                 if aria_label == "Like":
                                     print(f"  ✓ Clicking 'Like' button...")
                                     driver.execute_script("arguments[0].scrollIntoView(true);", button)
-                                    human_sleep(0.2, 0.4)
+                                    human_sleep(0.6, 0.8)
                                     
                                     try:
                                         button.click()
@@ -454,6 +483,27 @@ def scroll_and_like_comments(driver, comments_container, test_comments, max_scro
                                     except:
                                         driver.execute_script("arguments[0].click();", button)
                                     
+                                    svgs = button.find_elements(By.TAG_NAME, "svg")
+
+                                    if not svgs:
+                                        continue
+
+                                    svg = svgs[0]
+                                    aria_label = svg.get_attribute("aria-label")
+
+                                    if aria_label == "Like":
+                                        print(f"  ✓ Clicking 'Like' button...")
+                                        driver.execute_script("arguments[0].scrollIntoView(true);", button)
+                                        human_sleep(0.6, 0.8)
+                                        
+                                        try:
+                                            button.click()
+
+                                        except:
+                                            driver.execute_script("arguments[0].click();", button)
+                                        else: 
+                                            pass
+
                                     try:
                                         if aria_label == "Unlike":
                                             already_liked = True
